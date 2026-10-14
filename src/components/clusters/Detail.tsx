@@ -68,6 +68,7 @@ import {
   ScheduledBackupSuspendLabel,
 } from '../scheduledbackups/List';
 import { launchConnectActivity } from './connect';
+import { FenceAction } from './fence';
 import { HibernateDetailAction } from './hibernate';
 import { SwitchoverAction } from './switchover';
 
@@ -146,6 +147,7 @@ function InstanceActions({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
       {pod.getName() !== cluster.currentPrimary && !cluster.isSwitchoverInProgress && (
         <SwitchoverAction cluster={cluster} pod={pod} />
       )}
+      <FenceAction cluster={cluster} pod={pod} />
     </>
   );
 }
