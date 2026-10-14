@@ -90,6 +90,19 @@ List and detail views for managing available Postgres operand images.
 1. Download the `cnpg-headlamp-plugin-<version>.tar.gz` archive from the [GitHub Releases](https://github.com/cloudnative-pg/cnpg-headlamp-plugin/releases) page
 2. Install it following the [Headlamp plugin installation documentation](https://headlamp.dev/docs/latest/development/plugins/)
 
+### In-Cluster install
+
+Deploy Headlamp together with the plugin using the example manifest in [`deploy/headlamp-with-cnpg.yaml`](deploy/headlamp-with-cnpg.yaml), replacing `vX.Y.Z` with a [released plugin version](https://github.com/cloudnative-pg/cnpg-headlamp-plugin/releases):
+
+```sh
+VERSION=vX.Y.Z # e.g. VERSION=v0.1.4
+curl -s https://raw.githubusercontent.com/cloudnative-pg/cnpg-headlamp-plugin/main/deploy/headlamp-with-cnpg.yaml \
+  | sed "s/vX.Y.Z/$VERSION/" \
+  | kubectl apply -f -
+```
+
+Note: with `-in-cluster`, Headlamp authenticates with its own ServiceAccount, so grant it the RBAC permissions described in the [Headlamp in-cluster documentation](https://headlamp.dev/docs/latest/installation/in-cluster/) and generate a login token for your user (`kubectl create token <serviceaccount>`).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, the live-load
