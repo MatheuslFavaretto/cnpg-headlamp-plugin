@@ -12,6 +12,8 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Divider from '@mui/material/Divider';
 import { alpha, type SxProps, type Theme } from '@mui/material/styles';
+import Tab from '@mui/material/Tab';
+import Tabs from '@mui/material/Tabs';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import { useCallback, useEffect, useState } from 'react';
@@ -24,6 +26,13 @@ import { CnpgLogo } from '../common/CnpgLogo';
 import { Pod, PodStatusLabel } from '../common/podActions';
 import { ViewLogsButton } from '../common/podLogs';
 import { OpenTerminalButton } from '../common/podTerminal';
+import {
+  BARMAN_PLUGIN_ID,
+  ComponentCards,
+  InstallationWorkflow,
+  KLIO_PLUGIN_ID,
+  useCertManagerStatus,
+} from './InstallGuide';
 
 type Crd = InstanceType<typeof K8s.ResourceClasses.CustomResourceDefinition>;
 type Deployment = InstanceType<typeof K8s.ResourceClasses.Deployment>;
@@ -357,9 +366,9 @@ function HealthBanner({
   const operatorPods = pods ?? [];
   if (operatorPods.length === 0) {
     return (
-      <Alert severity="error" sx={bannerSx('error')}>
-        <AlertTitle>Operator is not installed</AlertTitle>
-        No pod matching label {OPERATOR_LABEL} was found in any namespace.
+      <Alert severity="info" sx={bannerSx('info')}>
+        <AlertTitle>Not installed</AlertTitle>
+        No CloudNativePG components are installed in this cluster yet.
       </Alert>
     );
   }
@@ -581,6 +590,7 @@ function InstalledComponents({
   services: Service[] | null;
   onHealth?: (uid: string, health: PluginHealth) => void;
 }) {
+  const operatorInstalled = (pods ?? []).length > 0;
   return (
     <>
       <Box>
@@ -590,17 +600,11 @@ function InstalledComponents({
         <Divider />
       </Box>
       <Box display="grid" gap={2} sx={{ gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' } }}>
-        <OperatorCard pods={pods} deployment={deployment} />
+        {operatorInstalled && <OperatorCard pods={pods} deployment={deployment} />}
         {(services ?? []).map(service => (
           <PluginCard key={service.metadata.uid} service={service} onHealth={onHealth} />
         ))}
       </Box>
-      {services !== null && services.length === 0 && (
-        <StatusLabel status="">
-          No Service carrying a {PLUGIN_LABEL} label was found — no CNPG-i plugins (e.g. Barman
-          Cloud) appear to be installed.
-        </StatusLabel>
-      )}
     </>
   );
 }
@@ -631,6 +635,94 @@ export function OperatorStatus() {
   const loading =
     crds === null || operatorPods === null || deployments === null || services === null;
 
+  const { installed: certManagerInstalled, loading: certManagerLoading } =
+    useCertManagerStatus(crds);
+  const cnpgInstalled = (operatorPods ?? []).length > 0;
+  // Where the operator actually runs — the plugins must share this namespace. Taken from
+  // the live pods rather than the namespaces created in the install guide, which may differ
+  // (the App Catalog can install the operator anywhere).
+  const operatorNamespace = (operatorPods ?? [])[0]?.getNamespace() ?? null;
+  const pluginIds = new Set(
+    (services ?? []).map(s => s.metadata.labels?.[PLUGIN_LABEL] ?? s.getName())
+  );
+  const barmanInstalled = pluginIds.has(BARMAN_PLUGIN_ID);
+  const klioInstalled = pluginIds.has(KLIO_PLUGIN_ID);
+  const nothingInstalled =
+    !loading && !certManagerLoading && !cnpgInstalled && (services ?? []).length === 0;
+
+  // Installation lives in its own tab so a partially-installed cluster doesn't render a
+  // very long single page (status + workflow + component cards). The status tab only
+  // makes sense once something is installed; the installation tab is always there —
+  // its component cards stay on screen with their install status instead of vanishing.
+  // During loading both show so skeletons don't flicker.
+  const showStatus = loading || !nothingInstalled;
+  const showInstall = true;
+  const [activeTab, setActiveTab] = useState<'status' | 'install'>('status');
+  useEffect(() => {
+    if (!showStatus && activeTab !== 'install') {
+      setActiveTab('install');
+    }
+  }, [showStatus, activeTab]);
+
+  const statusContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {/* Banner title bolded: this is the page's most important box. */}
+      <Box sx={{ '& .MuiAlertTitle-root': { fontWeight: 700 } }}>
+        <HealthBanner
+          pods={operatorPods}
+          services={services}
+          crds={crds}
+          health={pluginHealth}
+          loading={loading}
+        />
+      </Box>
+      {(loading || cnpgInstalled) && (
+        <Box
+          display="grid"
+          gap={2}
+          sx={{ gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}
+        >
+          <OperatorSummaryCard
+            pods={operatorPods}
+            deployment={deployments?.[0] ?? null}
+            loading={loading}
+          />
+          <PluginsSummaryCard services={services} health={pluginHealth} loading={loading} />
+          <ResourcesSummaryCard crds={crds} loading={loading} />
+        </Box>
+      )}
+      {!loading && !nothingInstalled && (
+        <InstalledComponents
+          pods={operatorPods}
+          deployment={deployments?.[0] ?? null}
+          services={services}
+          onHealth={handlePluginHealth}
+        />
+      )}
+    </Box>
+  );
+
+  const installContent = (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {!loading && (
+        <InstallationWorkflow
+          cnpgInstalled={cnpgInstalled}
+          certManagerInstalled={certManagerInstalled}
+          barmanInstalled={barmanInstalled}
+          klioInstalled={klioInstalled}
+        />
+      )}
+      <ComponentCards
+        cnpgInstalled={cnpgInstalled}
+        certManagerInstalled={certManagerInstalled}
+        barmanInstalled={barmanInstalled}
+        klioInstalled={klioInstalled}
+        loading={loading || certManagerLoading}
+        operatorNamespace={operatorNamespace}
+      />
+    </Box>
+  );
+
   // Same page padding as the cluster details page, so the title doesn't hug the viewport edge.
   return (
     <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -652,35 +744,29 @@ export function OperatorStatus() {
             CloudNativePG
           </Typography>
           <Typography variant="subtitle1" color="textSecondary">
-            Operator Status
+            Operator &amp; Plugins Status
           </Typography>
         </Box>
       </Box>
-      {/* Banner title bolded: this is the page's most important box. */}
-      <Box sx={{ '& .MuiAlertTitle-root': { fontWeight: 700 } }}>
-        <HealthBanner
-          pods={operatorPods}
-          services={services}
-          crds={crds}
-          health={pluginHealth}
-          loading={loading}
-        />
-      </Box>
-      <Box display="grid" gap={2} sx={{ gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' } }}>
-        <OperatorSummaryCard
-          pods={operatorPods}
-          deployment={deployments?.[0] ?? null}
-          loading={loading}
-        />
-        <PluginsSummaryCard services={services} health={pluginHealth} loading={loading} />
-        <ResourcesSummaryCard crds={crds} loading={loading} />
-      </Box>
-      <InstalledComponents
-        pods={operatorPods}
-        deployment={deployments?.[0] ?? null}
-        services={services}
-        onHealth={handlePluginHealth}
-      />
+      {showStatus && showInstall ? (
+        <>
+          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs
+              value={activeTab}
+              onChange={(_, value) => setActiveTab(value)}
+              variant="scrollable"
+            >
+              <Tab value="status" label="Operator Status" />
+              <Tab value="install" label="Installation" />
+            </Tabs>
+          </Box>
+          {activeTab === 'status' ? statusContent : installContent}
+        </>
+      ) : showStatus ? (
+        statusContent
+      ) : (
+        installContent
+      )}
     </Box>
   );
 }
