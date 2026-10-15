@@ -24,6 +24,8 @@ import Card from '@mui/material/Card';
 import CardContent from '@mui/material/CardContent';
 import Chip from '@mui/material/Chip';
 import Grid from '@mui/material/Grid';
+import IconButton from '@mui/material/IconButton';
+import Menu from '@mui/material/Menu';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import { alpha, useTheme } from '@mui/material/styles';
@@ -139,15 +141,50 @@ function parseQuantityToBytes(quantity: string | undefined): number {
   return value * (factors[unit] ?? 1);
 }
 
+// Logs and terminal are everyday actions, so they stay inline. Switchover and fencing are
+// administrative/emergency operations, so they live behind this per-row kebab menu — keeping
+// the Actions column to three icons (logs, terminal, menu) also stops it wrapping onto two
+// rows. The menu closes only after a dialog is confirmed, never when one opens: the actions
+// live inside the menu, so closing it first would unmount them and kill the dialog's state.
+function InstanceActionsMenu({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const open = Boolean(anchorEl);
+  const closeMenu = () => setAnchorEl(null);
+
+  return (
+    <>
+      <Tooltip title="More actions">
+        <IconButton
+          aria-label="More actions"
+          size="small"
+          onClick={e => setAnchorEl(e.currentTarget)}
+          aria-haspopup="menu"
+          aria-expanded={open ? 'true' : undefined}
+        >
+          <Icon icon="mdi:dots-vertical" />
+        </IconButton>
+      </Tooltip>
+      <Menu anchorEl={anchorEl} open={open} onClose={closeMenu}>
+        {pod.getName() !== cluster.currentPrimary && !cluster.isSwitchoverInProgress && (
+          <SwitchoverAction
+            cluster={cluster}
+            pod={pod}
+            buttonStyle="menu"
+            afterConfirm={closeMenu}
+          />
+        )}
+        <FenceAction cluster={cluster} pod={pod} buttonStyle="menu" afterConfirm={closeMenu} />
+      </Menu>
+    </>
+  );
+}
+
 function InstanceActions({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
   return (
     <>
       <ViewLogsButton pod={pod} />
       <OpenTerminalButton pod={pod} />
-      {pod.getName() !== cluster.currentPrimary && !cluster.isSwitchoverInProgress && (
-        <SwitchoverAction cluster={cluster} pod={pod} />
-      )}
-      <FenceAction cluster={cluster} pod={pod} />
+      <InstanceActionsMenu cluster={cluster} pod={pod} />
     </>
   );
 }
@@ -1494,6 +1531,9 @@ function InstancesSection({ cluster }: { cluster: Cluster }) {
           {
             label: 'Actions',
             getter: (pod: Pod) => <InstanceActions cluster={cluster} pod={pod} />,
+            // Every column defaults to 1fr, so Actions was as wide as Node or QoS despite
+            // holding only three icons. max-content shrink-wraps it to the buttons instead.
+            gridTemplate: 'max-content',
           },
         ]}
         data={sortByName(pods)}

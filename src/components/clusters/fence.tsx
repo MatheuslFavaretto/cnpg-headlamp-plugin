@@ -1,8 +1,12 @@
+import { Icon } from '@iconify/react';
 import {
   ActionButton,
   AuthVisible,
   ConfirmDialog,
 } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import MenuItem from '@mui/material/MenuItem';
 import Tooltip from '@mui/material/Tooltip';
 import { useSnackbar } from 'notistack';
 import { useState } from 'react';
@@ -18,7 +22,24 @@ function formatError(error: unknown): string {
 // main resource endpoint via Cluster.setInstanceFenced — the same `cnpg.io/fencedInstances`
 // annotation `kubectl cnpg fencing on|off` manages. The operator then shuts the instance's
 // postmaster down (or starts it again) asynchronously, after up to `.spec.switchoverDelay`.
-export function FenceAction({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
+export function FenceAction({
+  cluster,
+  pod,
+  buttonStyle = 'action',
+  afterConfirm,
+}: {
+  cluster: Cluster;
+  pod: Pod;
+  /** 'menu' when rendered inside a row-action menu, 'action' (icon) elsewhere. */
+  buttonStyle?: 'action' | 'menu';
+  /**
+   * Closes the row-action menu after the dialog is confirmed (menu usage only). This must NOT
+   * run when opening the dialog: the toggle lives inside the menu, so closing it first would
+   * unmount this component and instantly kill the dialog's `open` state. DeleteButton follows
+   * this same open-first-close-after pattern via its own `afterConfirm`.
+   */
+  afterConfirm?: () => void;
+}) {
   const { enqueueSnackbar } = useSnackbar();
   const [open, setOpen] = useState(false);
   // Same allowed-until-checked pattern as switchover.tsx: ActionButton has no bare `disabled`
@@ -36,22 +57,47 @@ export function FenceAction({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
   if (fencedInstances === undefined) {
     blockedMessage = 'The cnpg.io/fencedInstances annotation has invalid syntax.';
   } else if (fenced && fencedInstances.includes(FENCE_ALL_INSTANCES)) {
-    blockedMessage = 'All instances are fenced: lift fencing for the whole cluster instead.';
+    blockedMessage =
+      'All instances are fenced: use kubectl cnpg fencing to unfence the whole cluster.';
   }
 
   const description = fenced ? 'Unfence instance' : 'Fence instance';
+  const icon = fenced ? 'mdi:gate-open' : 'mdi:gate';
   const disabledMessage = !allowed
     ? `You don't have permission to ${fenced ? 'unfence' : 'fence'} this instance.`
     : blockedMessage;
 
-  const button = (
-    <ActionButton
-      description={description}
-      icon={fenced ? 'mdi:lock-open-variant-outline' : 'mdi:lock-outline'}
-      onClick={() => setOpen(true)}
-      iconButtonProps={{ disabled: disabledMessage !== undefined }}
-    />
-  );
+  const button =
+    buttonStyle === 'menu' ? (
+      // Menu-style ActionButtons ignore `disabled`, so the denied/blocked state renders its
+      // own disabled MenuItem instead of being hidden — the user still sees the action.
+      disabledMessage === undefined ? (
+        <ActionButton
+          description={description}
+          icon={icon}
+          buttonStyle="menu"
+          onClick={() => setOpen(true)}
+        />
+      ) : (
+        <Tooltip title={disabledMessage}>
+          <span>
+            <MenuItem disabled>
+              <ListItemIcon>
+                <Icon icon={icon} width={20} />
+              </ListItemIcon>
+              <ListItemText>{description}</ListItemText>
+            </MenuItem>
+          </span>
+        </Tooltip>
+      )
+    ) : (
+      <ActionButton
+        description={description}
+        icon={icon}
+        onClick={() => setOpen(true)}
+        iconButtonProps={{ disabled: disabledMessage !== undefined }}
+      />
+    );
 
   return (
     <>
@@ -62,12 +108,12 @@ export function FenceAction({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
       >
         {null}
       </AuthVisible>
-      {disabledMessage === undefined ? (
-        button
-      ) : (
+      {buttonStyle === 'action' && disabledMessage !== undefined ? (
         <Tooltip title={disabledMessage}>
           <span>{button}</span>
         </Tooltip>
+      ) : (
+        button
       )}
       <ConfirmDialog
         open={open}
@@ -102,6 +148,7 @@ export function FenceAction({ cluster, pod }: { cluster: Cluster; pod: Pod }) {
         }
         onConfirm={() => {
           setOpen(false);
+          afterConfirm?.();
           cluster
             .setInstanceFenced(instanceName, !fenced)
             .then(() => {
