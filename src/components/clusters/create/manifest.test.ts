@@ -6,8 +6,11 @@ import {
   defaultFormState,
   deriveSummary,
   getValidationErrors,
+  initialFormStateFromSearch,
   instanceCardSelection,
+  isStaleObjectStoreSelection,
   KLIO_PLUGIN_NAME,
+  recoverySearch,
   validateDryRun,
 } from './types';
 
@@ -288,4 +291,91 @@ describe('validateDryRun', () => {
       errors: ['spec.storage.size: Required value'],
     });
   });
+});
+
+describe('recovery create-page links', () => {
+  const fromObjectStore = { namespace: 'cnpg', objectStore: 'minio-store', serverName: 'old-db' };
+
+  it('keeps the bare ?start=recovery link used by the list page Restore action', () => {
+    expect(recoverySearch()).toBe('?start=recovery');
+  });
+
+  it('leaves out unset values instead of sending empty params', () => {
+    expect(recoverySearch({ objectStore: 'minio-store', serverName: '' })).toBe(
+      '?start=recovery&objectStore=minio-store'
+    );
+  });
+
+  it.each(['', '?start=empty', '?namespace=cnpg&objectStore=minio-store&serverName=old-db'])(
+    'opens an empty initdb cluster without start=recovery (%s)',
+    search => {
+      expect(initialFormStateFromSearch(search)).toEqual(defaultFormState());
+    }
+  );
+
+  it('opens barman recovery with empty fields for a bare ?start=recovery', () => {
+    expect(initialFormStateFromSearch('?start=recovery')).toEqual({
+      ...defaultFormState(),
+      startOption: 'barman-recovery',
+    });
+  });
+
+  it('round-trips namespace, ObjectStore and server name from the ObjectStore Recover action', () => {
+    expect(initialFormStateFromSearch(recoverySearch(fromObjectStore))).toEqual({
+      ...defaultFormState(),
+      startOption: 'barman-recovery',
+      namespace: 'cnpg',
+      recoveryObjectStoreName: 'minio-store',
+      recoveryServerName: 'old-db',
+    });
+  });
+
+  it('leaves only the new cluster name for the user to fill in', () => {
+    const state = initialFormStateFromSearch(recoverySearch(fromObjectStore));
+    expect(getValidationErrors(state)).toEqual(['Name is required.']);
+    expect(getValidationErrors({ ...state, name: 'restored-db' })).toEqual([]);
+  });
+
+  it('builds a recovery manifest pointing at the selected store and server', () => {
+    const state = initialFormStateFromSearch(recoverySearch(fromObjectStore));
+    expect(buildClusterManifest({ ...state, name: 'restored-db' })).toMatchObject({
+      metadata: { name: 'restored-db', namespace: 'cnpg' },
+      spec: {
+        bootstrap: { recovery: { source: 'recovery-source' } },
+        externalClusters: [
+          {
+            name: 'recovery-source',
+            plugin: {
+              name: BARMAN_CLOUD_PLUGIN_NAME,
+              parameters: { barmanObjectName: 'minio-store', serverName: 'old-db' },
+            },
+          },
+        ],
+      },
+    });
+  });
+});
+
+describe('isStaleObjectStoreSelection', () => {
+  const stores = ['minio-store', 'team-backups'];
+
+  it('keeps a store that exists in the selected namespace', () => {
+    expect(isStaleObjectStoreSelection('minio-store', stores)).toBe(false);
+  });
+
+  it('flags a store missing from the namespace (switched namespace or deleted store)', () => {
+    expect(isStaleObjectStoreSelection('gone-store', stores)).toBe(true);
+    expect(isStaleObjectStoreSelection('minio-store', [])).toBe(true);
+  });
+
+  it('has nothing to clear when no store is selected', () => {
+    expect(isStaleObjectStoreSelection('', stores)).toBe(false);
+  });
+
+  it.each([null, undefined])(
+    'keeps a pre-filled store while the list is still loading (%s)',
+    loading => {
+      expect(isStaleObjectStoreSelection('minio-store', loading)).toBe(false);
+    }
+  );
 });

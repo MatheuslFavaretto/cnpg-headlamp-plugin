@@ -118,6 +118,50 @@ export function defaultFormState(): ClusterCreateFormState {
   };
 }
 
+export interface RecoveryLinkOptions {
+  namespace?: string;
+  objectStore?: string;
+  serverName?: string;
+}
+
+// Query string for a create-page link that opens on barman-guided recovery, optionally
+// pre-filled with the ObjectStore and source server. Read back by initialFormStateFromSearch.
+export function recoverySearch(opts: RecoveryLinkOptions = {}): string {
+  const params = new URLSearchParams({ start: 'recovery' });
+  if (opts.namespace) params.set('namespace', opts.namespace);
+  if (opts.objectStore) params.set('objectStore', opts.objectStore);
+  if (opts.serverName) params.set('serverName', opts.serverName);
+  return `?${params.toString()}`;
+}
+
+// Builds the create form's initial state from the page's query string. ?start=recovery (linked
+// from the list page's "Restore" action and the ObjectStore page's per-server "Recover" action)
+// lands directly on the barman-guided recovery start option; the optional namespace, objectStore
+// and serverName params pre-fill it. The namespace must be the ObjectStore's own, since the
+// ObjectStore picker only lists stores from the selected namespace.
+export function initialFormStateFromSearch(search: string): ClusterCreateFormState {
+  const state = defaultFormState();
+  const params = new URLSearchParams(search);
+  if (params.get('start') !== 'recovery') {
+    return state;
+  }
+  state.startOption = 'barman-recovery';
+  state.namespace = params.get('namespace') ?? '';
+  state.recoveryObjectStoreName = params.get('objectStore') ?? '';
+  state.recoveryServerName = params.get('serverName') ?? '';
+  return state;
+}
+
+// Whether a selected ObjectStore no longer exists among the stores listed for the selected
+// namespace (e.g. after switching namespace, or a Recover link to a since-deleted store) and so
+// should be cleared. While the list is still loading (null) nothing is stale yet.
+export function isStaleObjectStoreSelection(
+  selected: string,
+  storeNames: string[] | null | undefined
+): boolean {
+  return !!storeNames && !!selected && !storeNames.includes(selected);
+}
+
 // 1 / 3 shortcut cards vs. an arbitrary count edited in the HA tab.
 export type InstanceCardSelection = '1' | '3' | 'custom';
 

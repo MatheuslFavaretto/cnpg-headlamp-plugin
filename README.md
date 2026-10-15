@@ -58,7 +58,7 @@ On-demand backups with status tracking, created against the Barman Cloud plugin 
 
 ### Object Stores
 
-Manage the `ObjectStore` CRs backing the Barman Cloud plugin, with a "referring clusters" section showing which clusters use each store for backup and/or recovery.
+Manage the `ObjectStore` CRs backing the Barman Cloud plugin, with a "referring clusters" section showing which clusters use each store for backup and/or recovery, and a per-server "Recover" action in the recovery window table that opens the creation page pre-filled to restore that server's backups into a new cluster.
 
 ### Database objects
 
