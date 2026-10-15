@@ -1,4 +1,10 @@
 import { KubeObject, KubeObjectInterface } from '@kinvolk/headlamp-plugin/lib/k8s/cluster';
+import {
+  FENCE_ALL_INSTANCES,
+  FENCED_INSTANCES_ANNOTATION,
+  parseFencedInstances,
+  updateFencedInstances,
+} from './fencing';
 import { parseBool } from './status';
 
 /** A single entry in Cluster.status.conditions (standard metav1.Condition shape). */
@@ -211,6 +217,42 @@ export class Cluster extends KubeObject<CnpgCluster> {
       metadata: {
         annotations: {
           [HIBERNATION_ANNOTATION]: hibernated ? HIBERNATION_ON : 'off',
+        },
+      },
+    } as any);
+  }
+
+  /**
+   * Instance names listed in the `cnpg.io/fencedInstances` annotation (`*` means all), or
+   * `undefined` when the annotation holds a value the operator itself would reject.
+   */
+  get fencedInstances(): string[] | undefined {
+    return parseFencedInstances(this.metadata.annotations?.[FENCED_INSTANCES_ANNOTATION]);
+  }
+
+  isInstanceFenced(instanceName: string): boolean {
+    const fenced = this.fencedInstances ?? [];
+    return fenced.includes(FENCE_ALL_INSTANCES) || fenced.includes(instanceName);
+  }
+
+  /**
+   * Fences or unfences one instance, mirroring `kubectl cnpg fencing on|off`. The patch carries
+   * the resourceVersion the list was computed from, so a concurrent change to the annotation
+   * makes the API server reject it (409) instead of silently dropping the other edit.
+   */
+  setInstanceFenced(instanceName: string, fenced: boolean): Promise<any> {
+    const current = this.fencedInstances;
+    if (current === undefined) {
+      return Promise.reject(
+        new Error(`the ${FENCED_INSTANCES_ANNOTATION} annotation has invalid syntax`)
+      );
+    }
+    const updated = updateFencedInstances(current, instanceName, fenced);
+    return this.patch({
+      metadata: {
+        resourceVersion: this.metadata.resourceVersion,
+        annotations: {
+          [FENCED_INSTANCES_ANNOTATION]: updated.length > 0 ? JSON.stringify(updated) : null,
         },
       },
     } as any);
