@@ -1,3 +1,4 @@
+import { Icon } from '@iconify/react';
 import {
   DetailsGrid,
   ResourceLink,
@@ -102,6 +103,7 @@ function RecoveryWindowSection({ objectStore }: { objectStore: ObjectStore }) {
                 <Button
                   size="small"
                   variant="outlined"
+                  startIcon={<Icon icon="mdi:backup-restore" />}
                   onClick={() =>
                     history.push(
                       getClusterCreateUrl({
