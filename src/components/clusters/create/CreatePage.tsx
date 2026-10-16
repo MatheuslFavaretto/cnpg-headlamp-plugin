@@ -14,7 +14,7 @@ import Tab from '@mui/material/Tab';
 import Tabs from '@mui/material/Tabs';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useHistory, useLocation } from 'react-router-dom';
 import { Cluster } from '../../../resources/cluster';
 import { ClusterImageCatalog, ImageCatalog } from '../../../resources/imageCatalog';
@@ -31,13 +31,16 @@ import {
   CatalogKind,
   ClusterCreateFormState,
   collectParameters,
-  defaultFormState,
   deriveSummary,
   DryRunState,
   getValidationErrors,
   ImageSource,
+  initialFormStateFromSearch,
   instanceCardSelection,
+  isStaleObjectStoreSelection,
   KVRow,
+  RecoveryLinkOptions,
+  recoverySearch,
   StartOption,
   SyncDataDurability,
   SyncMethod,
@@ -208,6 +211,21 @@ function GeneralTab({
   const [objectStores] = ObjectStore.useList({ namespace: state.namespace });
   const [pluginConfigurations] = PluginConfiguration.useList({ namespace: state.namespace });
   const selection = instanceCardSelection(state.instances);
+
+  // Keep the recovery ObjectStore valid against the stores that exist in the selected namespace
+  // — e.g. after switching namespace, or a Recover link to a since-deleted store. The Select
+  // shows an unknown value as blank, yet it would still end up in the manifest.
+  useEffect(() => {
+    if (
+      isStaleObjectStoreSelection(
+        state.recoveryObjectStoreName,
+        objectStores?.map(os => os.getName())
+      )
+    ) {
+      update({ recoveryObjectStoreName: '' });
+    }
+  }, [objectStores, state.recoveryObjectStoreName, update]);
+
   const nameInvalid = !!state.name && !NAME_PATTERN.test(state.name);
 
   // Selected card reads as gray in both light and dark mode (action.selected
@@ -958,15 +976,9 @@ export function CreateClusterPage() {
   const history = useHistory();
   const location = useLocation();
   const [tab, setTab] = useState<CreateTab>('general');
-  const [state, setState] = useState<ClusterCreateFormState>(() => {
-    const initial = defaultFormState();
-    // ?start=recovery (linked from the list page's "Restore" action) lands directly on the
-    // barman-guided recovery start option instead of an empty initdb cluster.
-    if (new URLSearchParams(location.search).get('start') === 'recovery') {
-      initial.startOption = 'barman-recovery';
-    }
-    return initial;
-  });
+  const [state, setState] = useState<ClusterCreateFormState>(() =>
+    initialFormStateFromSearch(location.search)
+  );
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [manifestOverride, setManifestOverride] = useState<object | null>(null);
@@ -1194,7 +1206,7 @@ export function CreateClusterPage() {
   );
 }
 
-export function getClusterCreateUrl(opts?: { start?: 'recovery' }): string {
+export function getClusterCreateUrl(opts?: { start?: 'recovery' } & RecoveryLinkOptions): string {
   const base = createRouteURL('CNPG Cluster New');
-  return opts?.start === 'recovery' ? `${base}?start=recovery` : base;
+  return opts?.start === 'recovery' ? `${base}${recoverySearch(opts)}` : base;
 }
